@@ -11,7 +11,7 @@ open index.html
 ```
 Or drag `index.html` into any browser window.
 
-### Option 2 — Local dev server (recommended to avoid font CORS)
+# Option 2 — Local dev server (recommended to avoid font CORS)
 ```bash
 # With Node.js
 npx serve .
