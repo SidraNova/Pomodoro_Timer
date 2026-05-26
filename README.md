@@ -3,9 +3,9 @@
 
 A single-screen Pomodoro timer web app with daily session history.
 
-## How to Run
+# How to Run
 
-### Option 1 — Open directly (no install needed)
+# Option 1 — Open directly (no install needed)
 ```
 open index.html
 ```
@@ -21,9 +21,9 @@ python3 -m http.server 8080
 ```
 Then open  
 
-### Option 3 — Deployed URL
-> If deployed (e.g. Netlify / Vercel / GitHub Pages), the URL would go here.
-> Example: `https://your-username.github.io/pomodoro-timer/`
+# Option 3 — Deployed URL
+https://github.com/SidraNova/Pomodoro_Timer
+
 
 No build step, no dependencies — pure HTML/CSS/JS.
 
