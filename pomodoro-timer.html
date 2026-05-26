@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pomodoro — Deep Work Timer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Playfair+Display:wght@400;700;900&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0e0d0b; --surface: #161511; --surface2: #1e1c17; --border: #2a2720;
+      --text: #f0ebe0; --muted: #6b6456; --accent: #e8a857; --accent2: #c47d3e;
+      --green: #7ec8a0; --red: #e07070; --ring-bg: #1e1c17;
+      --ring-focus: #e8a857; --ring-break: #7ec8a0;
+      --font-display: 'Playfair Display', Georgia, serif;
+      --font-mono: 'DM Mono', 'Courier New', monospace;
+      --font-body: 'DM Sans', sans-serif;
+      --radius: 12px; --radius-lg: 20px;
+      --transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    html, body {
+      height: 100%; background: var(--bg); color: var(--text);
+      font-family: var(--font-body); font-size: 16px; line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .grain {
+      position: fixed; inset: 0; pointer-events: none; z-index: 9999; opacity: 0.035;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+      background-repeat: repeat; background-size: 128px;
+    }
+
+    .app {
+      min-height: 100vh; max-width: 480px; margin: 0 auto;
+      padding: 0 20px 60px; display: flex; flex-direction: column;
+    }
+
+    .header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 28px 0 20px; border-bottom: 1px solid var(--border); margin-bottom: 40px;
+    }
+    .logo { font-family: var(--font-mono); font-size: 13px; font-weight: 500; letter-spacing: 0.08em; color: var(--accent); text-transform: lowercase; }
+    .header-status { font-family: var(--font-mono); font-size: 11px; color: var(--muted); letter-spacing: 0.06em; text-transform: lowercase; transition: color var(--transition); }
+    .header-status.running { color: var(--accent); animation: statusPulse 2s ease-in-out infinite; }
+    .header-status.break-mode { color: var(--green); }
+    @keyframes statusPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+    .main { display: flex; justify-content: center; }
+    .timer-container { display: flex; flex-direction: column; align-items: center; gap: 28px; width: 100%; }
+
+    .mode-pills {
+      display: flex; gap: 6px; background: var(--surface2);
+      border: 1px solid var(--border); border-radius: 999px; padding: 4px;
+    }
+    .pill {
+      font-family: var(--font-body); font-size: 13px; font-weight: 400;
+      letter-spacing: 0.04em; color: var(--muted); background: transparent;
+      border: none; border-radius: 999px; padding: 6px 20px; cursor: pointer;
+      transition: background var(--transition), color var(--transition);
+    }
+    .pill:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .pill.active { background: var(--surface); color: var(--text); box-shadow: 0 1px 4px rgba(0,0,0,0.4); }
+
+    .ring-wrap { position: relative; width: 280px; height: 280px; flex-shrink: 0; }
+    @media (max-width: 360px) { .ring-wrap { width: 240px; height: 240px; } }
+    .ring-svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+    .ring-bg { fill: none; stroke: var(--ring-bg); stroke-width: 10; }
+    .ring-progress {
+      fill: none; stroke: var(--ring-focus); stroke-width: 10; stroke-linecap: round;
+      stroke-dasharray: 816.81; stroke-dashoffset: 0;
+      transition: stroke-dashoffset 1s linear, stroke 0.5s ease; filter: url(#glow);
+    }
+    .ring-progress.break-mode { stroke: var(--ring-break); }
+    .ring-inner {
+      position: absolute; inset: 0; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 6px; pointer-events: none;
+    }
+    .time-display {
+      font-family: var(--font-mono); font-size: clamp(42px, 10vw, 56px);
+      font-weight: 300; letter-spacing: -0.02em; color: var(--text);
+      line-height: 1; transition: color var(--transition);
+    }
+    .mode-label {
+      font-family: var(--font-mono); font-size: 11px; font-weight: 400;
+      letter-spacing: 0.12em; text-transform: lowercase; color: var(--muted);
+      transition: color var(--transition);
+    }
+    .mode-label.focus-active { color: var(--accent); }
+    .mode-label.break-active { color: var(--green); }
+
+    .controls { display: flex; align-items: center; gap: 16px; }
+    .btn-primary {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      font-family: var(--font-body); font-size: 15px; font-weight: 500;
+      letter-spacing: 0.04em; color: var(--bg); background: var(--accent);
+      border: none; border-radius: 999px; padding: 14px 44px; cursor: pointer;
+      transition: background var(--transition), transform var(--transition), box-shadow var(--transition);
+      box-shadow: 0 4px 20px rgba(232, 168, 87, 0.25);
+    }
+    .btn-primary:hover { background: #f0b96a; box-shadow: 0 6px 28px rgba(232, 168, 87, 0.4); transform: translateY(-1px); }
+    .btn-primary:active { transform: translateY(0); }
+    .btn-primary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+    .btn-primary.break-mode { background: var(--green); box-shadow: 0 4px 20px rgba(126, 200, 160, 0.25); color: #0a1a12; }
+    .btn-primary.break-mode:hover { background: #96d8b4; box-shadow: 0 6px 28px rgba(126, 200, 160, 0.4); }
+    .btn-secondary {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 44px; height: 44px; color: var(--muted); background: var(--surface2);
+      border: 1px solid var(--border); border-radius: 50%; cursor: pointer;
+      transition: color var(--transition), background var(--transition), transform var(--transition);
+    }
+    .btn-secondary:hover { color: var(--text); background: var(--surface); transform: scale(1.05); }
+    .btn-secondary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+    .config-row {
+      display: flex; align-items: center; gap: 20px; background: var(--surface2);
+      border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 20px; width: 100%;
+    }
+    .config-item { display: flex; align-items: center; gap: 8px; flex: 1; justify-content: center; }
+    .config-label { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; color: var(--muted); text-transform: uppercase; min-width: 38px; }
+    .config-input-wrap { display: flex; align-items: center; gap: 4px; }
+    .config-btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 24px; height: 24px; font-size: 16px; font-weight: 300; color: var(--muted);
+      background: transparent; border: 1px solid var(--border); border-radius: 6px;
+      cursor: pointer; line-height: 1; transition: color var(--transition), border-color var(--transition);
+    }
+    .config-btn:hover { color: var(--text); border-color: var(--muted); }
+    .config-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+    .config-input {
+      width: 36px; text-align: center; font-family: var(--font-mono); font-size: 14px;
+      font-weight: 500; color: var(--text); background: transparent; border: none; outline: none;
+      -moz-appearance: textfield;
+    }
+    .config-input::-webkit-inner-spin-button, .config-input::-webkit-outer-spin-button { display: none; }
+    .config-unit { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+    .config-divider { font-size: 20px; color: var(--border); user-select: none; }
+
+    .history-section { margin-top: 44px; border-top: 1px solid var(--border); padding-top: 32px; }
+    .history-header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 20px; }
+    .history-title { font-family: var(--font-display); font-size: 20px; font-weight: 700; color: var(--text); letter-spacing: -0.01em; }
+    .history-count { font-family: var(--font-mono); font-size: 11px; color: var(--accent); letter-spacing: 0.06em; }
+    .history-list { display: flex; flex-direction: column; gap: 8px; }
+    .history-empty {
+      font-family: var(--font-mono); font-size: 12px; color: var(--muted);
+      letter-spacing: 0.04em; padding: 24px 0; text-align: center;
+      border: 1px dashed var(--border); border-radius: var(--radius);
+    }
+    .history-item {
+      display: flex; align-items: center; gap: 14px; background: var(--surface2);
+      border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 16px;
+      animation: slideIn 0.3s cubic-bezier(0.4, 0, 0.2, 1) both; list-style: none;
+    }
+    @keyframes slideIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+    .history-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); flex-shrink: 0; box-shadow: 0 0 6px rgba(126, 200, 160, 0.4); }
+    .history-text { font-family: var(--font-mono); font-size: 13px; font-weight: 500; color: var(--text); letter-spacing: 0.02em; flex: 1; }
+    .history-time { font-family: var(--font-mono); font-size: 11px; color: var(--muted); letter-spacing: 0.04em; flex-shrink: 0; }
+
+    .session-overlay {
+      position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center;
+      justify-content: center; background: rgba(14, 13, 11, 0.85);
+      backdrop-filter: blur(12px); opacity: 0; pointer-events: none;
+      transition: opacity 0.3s ease; padding: 20px;
+    }
+    .session-overlay.visible { opacity: 1; pointer-events: all; }
+    .overlay-card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg);
+      padding: 48px 40px; text-align: center; max-width: 340px; width: 100%;
+      transform: translateY(20px) scale(0.96);
+      transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+      box-shadow: 0 24px 60px rgba(0,0,0,0.6);
+    }
+    .session-overlay.visible .overlay-card { transform: translateY(0) scale(1); }
+    .overlay-icon { font-size: 40px; line-height: 1; margin-bottom: 20px; color: var(--green); display: block; animation: iconPop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.1s both; }
+    @keyframes iconPop { from { transform: scale(0); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+    .overlay-title { font-family: var(--font-display); font-size: 26px; font-weight: 700; color: var(--text); margin-bottom: 10px; }
+    .overlay-msg { font-family: var(--font-body); font-size: 14px; color: var(--muted); margin-bottom: 32px; line-height: 1.6; }
+    .overlay-btn { width: 100%; }
+
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+
+    @media (max-width: 360px) {
+      .app { padding: 0 14px 40px; }
+      .btn-primary { padding: 12px 32px; }
+      .config-row { padding: 12px 14px; gap: 12px; }
+      .overlay-card { padding: 36px 24px; }
+    }
+    @media (min-width: 768px) {
+      .app { padding-top: 20px; padding-bottom: 80px; }
+      .ring-wrap { width: 300px; height: 300px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="grain"></div>
+  <div class="app">
+    <header class="header">
+      <div class="logo">&#9632; pomo</div>
+      <div class="header-status" id="headerStatus">ready to focus</div>
+    </header>
+
+    <main class="main">
+      <div class="timer-container">
+        <div class="mode-pills" role="tablist" aria-label="Timer mode">
+          <button class="pill active" id="pillFocus" role="tab" aria-selected="true" data-mode="focus">Focus</button>
+          <button class="pill" id="pillBreak" role="tab" aria-selected="false" data-mode="break">Break</button>
+        </div>
+
+        <div class="ring-wrap" aria-live="polite" aria-atomic="true">
+          <svg class="ring-svg" viewBox="0 0 300 300" aria-hidden="true">
+            <defs>
+              <filter id="glow">
+                <feGaussianBlur stdDeviation="4" result="coloredBlur"/>
+                <feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge>
+              </filter>
+            </defs>
+            <circle class="ring-bg" cx="150" cy="150" r="130" />
+            <circle class="ring-progress" id="ringProgress" cx="150" cy="150" r="130" />
+          </svg>
+          <div class="ring-inner">
+            <div class="time-display" id="timeDisplay" aria-label="Time remaining">25:00</div>
+            <div class="mode-label" id="modeLabel">focus session</div>
+          </div>
+        </div>
+
+        <div class="controls" role="group" aria-label="Timer controls">
+          <button class="btn-secondary" id="btnReset" aria-label="Reset timer" title="Reset">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.5"/>
+            </svg>
+          </button>
+          <button class="btn-primary" id="btnStart" aria-label="Start timer">
+            <span id="btnLabel">Start</span>
+          </button>
+          <button class="btn-secondary" id="btnSkip" aria-label="Skip to next session" title="Skip">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/>
+            </svg>
+          </button>
+        </div>
+
+        <div class="config-row">
+          <div class="config-item">
+            <label for="focusDur" class="config-label">Focus</label>
+            <div class="config-input-wrap">
+              <button class="config-btn" data-action="dec" data-target="focus" aria-label="Decrease focus">−</button>
+              <input type="number" id="focusDur" class="config-input" value="25" min="1" max="90" aria-label="Focus minutes" />
+              <button class="config-btn" data-action="inc" data-target="focus" aria-label="Increase focus">+</button>
+            </div>
+            <span class="config-unit">min</span>
+          </div>
+          <div class="config-divider" aria-hidden="true">·</div>
+          <div class="config-item">
+            <label for="breakDur" class="config-label">Break</label>
+            <div class="config-input-wrap">
+              <button class="config-btn" data-action="dec" data-target="break" aria-label="Decrease break">−</button>
+              <input type="number" id="breakDur" class="config-input" value="5" min="1" max="30" aria-label="Break minutes" />
+              <button class="config-btn" data-action="inc" data-target="break" aria-label="Increase break">+</button>
+            </div>
+            <span class="config-unit">min</span>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <section class="history-section" aria-label="Today's completed sessions">
+      <div class="history-header">
+        <h2 class="history-title">Today's Sessions</h2>
+        <div class="history-count" id="historyCount" aria-live="polite">0 completed</div>
+      </div>
+      <div class="history-list" id="historyList" role="list">
+        <div class="history-empty" id="historyEmpty">
+          <span>No sessions yet — start focusing</span>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="session-overlay" id="sessionOverlay" role="dialog" aria-modal="true" aria-labelledby="overlayTitle" aria-hidden="true">
+    <div class="overlay-card">
+      <div class="overlay-icon" aria-hidden="true">✓</div>
+      <h2 class="overlay-title" id="overlayTitle">Session Complete</h2>
+      <p class="overlay-msg" id="overlayMsg">Great focus! Take a well-earned break.</p>
+      <button class="btn-primary overlay-btn" id="overlayBtn">Start Break</button>
+    </div>
+  </div>
+
+  <script>
+  (() => {
+    'use strict';
+    const CIRCUMFERENCE = 2 * Math.PI * 130;
+    const STORAGE_KEY = 'pomo_history';
+    const DATE_KEY = 'pomo_date';
+
+    let focusMins = 25, breakMins = 5, mode = 'focus';
+    let totalSecs = focusMins * 60, remaining = totalSecs;
+    let running = false, interval = null, audioCtx = null;
+
+    const timeDisplay = document.getElementById('timeDisplay');
+    const modeLabel = document.getElementById('modeLabel');
+    const ringProgress = document.getElementById('ringProgress');
+    const btnStart = document.getElementById('btnStart');
+    const btnLabel = document.getElementById('btnLabel');
+    const btnReset = document.getElementById('btnReset');
+    const btnSkip = document.getElementById('btnSkip');
+    const pillFocus = document.getElementById('pillFocus');
+    const pillBreak = document.getElementById('pillBreak');
+    const focusDurEl = document.getElementById('focusDur');
+    const breakDurEl = document.getElementById('breakDur');
+    const headerStatus = document.getElementById('headerStatus');
+    const historyList = document.getElementById('historyList');
+    const historyEmpty = document.getElementById('historyEmpty');
+    const historyCount = document.getElementById('historyCount');
+    const sessionOverlay = document.getElementById('sessionOverlay');
+    const overlayBtn = document.getElementById('overlayBtn');
+    const overlayMsg = document.getElementById('overlayMsg');
+    const overlayTitle = document.getElementById('overlayTitle');
+
+    function getAudioCtx() {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      return audioCtx;
+    }
+
+    function playTone(freq, duration, type = 'sine', volume = 0.4) {
+      try {
+        const ctx = getAudioCtx();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, ctx.currentTime);
+        gain.gain.setValueAtTime(volume, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + duration);
+      } catch(e) {}
+    }
+
+    function playSessionDone() {
+      playTone(523.25, 0.25);
+      setTimeout(() => playTone(659.25, 0.25), 260);
+      setTimeout(() => playTone(783.99, 0.5), 520);
+    }
+    function playBreakDone() {
+      playTone(783.99, 0.25);
+      setTimeout(() => playTone(659.25, 0.25), 260);
+      setTimeout(() => playTone(523.25, 0.5), 520);
+    }
+    function playTick() { playTone(1000, 0.04, 'square', 0.05); }
+
+    function updateRing() {
+      const offset = CIRCUMFERENCE * (1 - remaining / totalSecs);
+      ringProgress.style.strokeDashoffset = offset;
+    }
+
+    function formatTime(secs) {
+      return `${Math.floor(secs/60).toString().padStart(2,'0')}:${(secs%60).toString().padStart(2,'0')}`;
+    }
+
+    function updateDisplay() {
+      timeDisplay.textContent = formatTime(remaining);
+      document.title = `${formatTime(remaining)} — ${mode === 'focus' ? 'Focus' : 'Break'} · Pomo`;
+      updateRing();
+    }
+
+    function applyModeStyles() {
+      const isFocus = mode === 'focus';
+      pillFocus.classList.toggle('active', isFocus);
+      pillFocus.setAttribute('aria-selected', isFocus);
+      pillBreak.classList.toggle('active', !isFocus);
+      pillBreak.setAttribute('aria-selected', !isFocus);
+      ringProgress.classList.toggle('break-mode', !isFocus);
+      modeLabel.textContent = isFocus ? 'focus session' : 'break time';
+      modeLabel.className = 'mode-label ' + (isFocus ? 'focus-active' : 'break-active');
+      btnStart.classList.toggle('break-mode', !isFocus);
+      headerStatus.classList.toggle('break-mode', !isFocus);
+    }
+
+    function updateHeaderStatus() {
+      if (!running) {
+        headerStatus.textContent = 'ready to focus';
+        headerStatus.classList.remove('running');
+      } else {
+        headerStatus.textContent = mode === 'focus' ? 'focusing…' : 'on break…';
+        headerStatus.classList.add('running');
+      }
+    }
+
+    function tick() {
+      remaining--;
+      updateDisplay();
+      if (mode === 'focus' && remaining <= 5 && remaining > 0) playTick();
+      if (remaining <= 0) {
+        clearInterval(interval); interval = null; running = false;
+        onCycleEnd();
+      }
+    }
+
+    function startTimer() {
+      if (running) return;
+      if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+      running = true;
+      interval = setInterval(tick, 1000);
+      btnLabel.textContent = 'Pause';
+      updateHeaderStatus();
+    }
+
+    function pauseTimer() {
+      if (!running) return;
+      clearInterval(interval); interval = null; running = false;
+      btnLabel.textContent = 'Resume';
+      updateHeaderStatus();
+    }
+
+    function resetTimer() {
+      pauseTimer(); remaining = totalSecs;
+      btnLabel.textContent = 'Start';
+      updateDisplay(); updateHeaderStatus();
+    }
+
+    function setMode(newMode) {
+      pauseTimer(); mode = newMode;
+      totalSecs = (mode === 'focus' ? focusMins : breakMins) * 60;
+      remaining = totalSecs;
+      btnLabel.textContent = 'Start';
+      applyModeStyles(); updateDisplay(); updateHeaderStatus();
+    }
+
+    function onCycleEnd() {
+      if (mode === 'focus') {
+        addHistory(focusMins); playSessionDone();
+        showOverlay('Session Complete', `${focusMins}-minute focus done! Take a well-earned break.`, 'Start Break');
+      } else {
+        playBreakDone();
+        showOverlay('Break Over', 'Rest complete. Ready for another focus session?', 'Start Focus');
+      }
+      document.title = mode === 'focus' ? '✓ Session Done!' : '✓ Break Done!';
+      updateHeaderStatus();
+    }
+
+    function showOverlay(title, msg, btnText) {
+      overlayTitle.textContent = title; overlayMsg.textContent = msg; overlayBtn.textContent = btnText;
+      sessionOverlay.classList.add('visible'); sessionOverlay.removeAttribute('aria-hidden');
+      overlayBtn.focus();
+    }
+
+    function hideOverlay() {
+      sessionOverlay.classList.remove('visible');
+      sessionOverlay.setAttribute('aria-hidden', 'true');
+    }
+
+    overlayBtn.addEventListener('click', () => {
+      hideOverlay();
+      setMode(mode === 'focus' ? 'break' : 'focus');
+      startTimer();
+    });
+
+    sessionOverlay.addEventListener('click', (e) => {
+      if (e.target === sessionOverlay) { hideOverlay(); setMode(mode === 'focus' ? 'break' : 'focus'); }
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && sessionOverlay.classList.contains('visible')) {
+        hideOverlay(); setMode(mode === 'focus' ? 'break' : 'focus');
+      }
+      if (e.code === 'Space' && !sessionOverlay.classList.contains('visible') &&
+          document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'BUTTON') {
+        e.preventDefault(); handleStartPause();
+      }
+    });
+
+    function todayKey() { return new Date().toISOString().slice(0, 10); }
+
+    function loadHistory() {
+      try {
+        const storedDate = localStorage.getItem(DATE_KEY);
+        const today = todayKey();
+        if (storedDate !== today) {
+          localStorage.setItem(DATE_KEY, today);
+          localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
+          return [];
+        }
+        return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+      } catch { return []; }
+    }
+
+    function saveHistory(history) {
+      try { localStorage.setItem(DATE_KEY, todayKey()); localStorage.setItem(STORAGE_KEY, JSON.stringify(history)); } catch {}
+    }
+
+    function addHistory(mins) {
+      const history = loadHistory();
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      history.push({ mins, time: timeStr, ts: Date.now() });
+      saveHistory(history); renderHistory(history);
+    }
+
+    function renderHistory(history) {
+      if (!history || history.length === 0) {
+        historyEmpty.style.display = 'block';
+        [...historyList.querySelectorAll('.history-item')].forEach(el => el.remove());
+        historyCount.textContent = '0 completed'; return;
+      }
+      historyEmpty.style.display = 'none';
+      historyCount.textContent = `${history.length} completed`;
+      [...historyList.querySelectorAll('.history-item')].forEach(el => el.remove());
+      history.forEach((entry, i) => {
+        const item = document.createElement('div');
+        item.className = 'history-item'; item.setAttribute('role', 'listitem');
+        item.innerHTML = `
+          <div class="history-dot" aria-hidden="true"></div>
+          <span class="history-text">✓ ${entry.mins}:00 focus</span>
+          <span class="history-time">${entry.time}</span>`;
+        if (i !== history.length - 1) item.style.animation = 'none';
+        historyList.appendChild(item);
+      });
+    }
+
+    function clamp(val, min, max) { return Math.max(min, Math.min(max, val)); }
+
+    focusDurEl.addEventListener('change', () => {
+      focusMins = clamp(parseInt(focusDurEl.value) || 25, 1, 90);
+      focusDurEl.value = focusMins;
+      if (mode === 'focus' && !running) { totalSecs = focusMins * 60; remaining = totalSecs; updateDisplay(); }
+    });
+
+    breakDurEl.addEventListener('change', () => {
+      breakMins = clamp(parseInt(breakDurEl.value) || 5, 1, 30);
+      breakDurEl.value = breakMins;
+      if (mode === 'break' && !running) { totalSecs = breakMins * 60; remaining = totalSecs; updateDisplay(); }
+    });
+
+    document.querySelectorAll('.config-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const action = btn.dataset.action, target = btn.dataset.target;
+        if (target === 'focus') {
+          focusMins = clamp(focusMins + (action === 'inc' ? 1 : -1), 1, 90);
+          focusDurEl.value = focusMins;
+          if (mode === 'focus' && !running) { totalSecs = focusMins * 60; remaining = totalSecs; updateDisplay(); }
+        } else {
+          breakMins = clamp(breakMins + (action === 'inc' ? 1 : -1), 1, 30);
+          breakDurEl.value = breakMins;
+          if (mode === 'break' && !running) { totalSecs = breakMins * 60; remaining = totalSecs; updateDisplay(); }
+        }
+      });
+    });
+
+    function handleStartPause() {
+      running ? pauseTimer() : startTimer();
+      btnLabel.textContent = running ? 'Pause' : 'Start';
+    }
+
+    btnStart.addEventListener('click', handleStartPause);
+    btnReset.addEventListener('click', resetTimer);
+    btnSkip.addEventListener('click', () => setMode(mode === 'focus' ? 'break' : 'focus'));
+    pillFocus.addEventListener('click', () => setMode('focus'));
+    pillBreak.addEventListener('click', () => setMode('break'));
+
+    // Init
+    renderHistory(loadHistory());
+    ringProgress.style.strokeDasharray = CIRCUMFERENCE;
+    ringProgress.style.strokeDashoffset = 0;
+    applyModeStyles(); updateDisplay(); updateHeaderStatus();
+  })();
+  </script>
+</body>
+</html>
