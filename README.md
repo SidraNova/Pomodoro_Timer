@@ -19,7 +19,7 @@ npx serve .
 # Or with Python
 python3 -m http.server 8080
 ```
-Then open **http://localhost:8080** (or the port shown).
+Then open  
 
 ### Option 3 — Deployed URL
 > If deployed (e.g. Netlify / Vercel / GitHub Pages), the URL would go here.
